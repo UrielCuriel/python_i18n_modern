@@ -6,6 +6,8 @@ Author: Uriel Curiel <urielcurrel@outlook.com>
 
 import json
 import logging
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import cast
 
@@ -41,7 +43,9 @@ class I18nModern:
     def __init__(self, default_locale: str, locales: LocaleDict | str | None = None):
         self._locales: Locales = {}
         self._default_locale: str = default_locale
+        # Increased cache size for better performance (was unbounded)
         self._previous_translations: dict[tuple[object, ...], str] = {}
+        self._cache_max_size: int = 2048  # Limit cache size to prevent unbounded growth
 
         if locales:
             if isinstance(locales, str):
@@ -75,8 +79,16 @@ class I18nModern:
         suffix: str = path.suffix.lower()
 
         if suffix == ".json":
-            with open(path, "r", encoding="utf-8") as f:
-                data: LocaleDict = cast(LocaleDict, json.load(f))
+            # Try memory-mapped style reading for very large files
+            try:
+                import mmap
+
+                with open(path, "rb") as f:
+                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                        data = cast(LocaleDict, json.loads(mm.read().decode("utf-8")))
+            except Exception:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = cast(LocaleDict, json.load(f))
         elif suffix in [".yaml", ".yml"]:
             if not yaml_available or yaml is None:
                 raise ImportError("PyYAML is required for YAML support. Install with: pip install pyyaml")
@@ -91,6 +103,56 @@ class I18nModern:
             raise ValueError(f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml")
 
         self._locales[locale_identify] = merge_deep(self._locales.get(self._default_locale), data)
+
+    def _load_path(self, path: Path) -> LocaleDict:
+        """Load a single locale file from a path with mmap optimization for JSON."""
+        suffix = path.suffix.lower()
+        if suffix == ".json":
+            try:
+                import mmap
+
+                with open(path, "rb") as f:
+                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                        return cast(LocaleDict, json.loads(mm.read().decode("utf-8")))
+            except Exception:
+                with open(path, "r", encoding="utf-8") as f:
+                    return cast(LocaleDict, json.load(f))
+        if suffix in [".yaml", ".yml"]:
+            if not yaml_available or yaml is None:
+                raise ImportError("PyYAML is required for YAML support. Install with: pip install pyyaml")
+            with open(path, "r", encoding="utf-8") as f:
+                return cast(LocaleDict, yaml.safe_load(f))  # type: ignore
+        if suffix == ".toml":
+            if not toml_available or tomli is None:
+                raise ImportError("tomli is required for TOML support. Install with: pip install tomli")
+            with open(path, "rb") as f:
+                return cast(LocaleDict, tomli.load(f))  # type: ignore
+        raise ValueError(f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml")
+
+    def _task_load_locale(self, file_path: str, locale: str) -> tuple[str, LocaleDict]:
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Locale file not found: {file_path}")
+        return locale, self._load_path(path)
+
+    def load_many(self, files: Iterable[tuple[str, str]], max_workers: int | None = None) -> None:
+        """Load multiple locale files concurrently.
+
+        Args:
+            files: Iterable of tuples (file_path, locale_identify)
+            max_workers: Optional maximum number of worker threads
+        """
+
+        # Load in parallel and merge safely once complete
+        results: list[tuple[str, LocaleDict]] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(self._task_load_locale, fp, loc) for fp, loc in files]
+            for fut in as_completed(futures):
+                results.append(fut.result())
+
+        # Merge results into _locales
+        for locale, data in results:
+            self._locales[locale] = merge_deep(self._locales.get(self._default_locale), data)
 
     def load_from_value(self, locales: LocaleDict, locale_identify: str):
         """
@@ -131,6 +193,14 @@ class I18nModern:
                 raise KeyError(f"Translation key '{key}' not found in locale '{locale}'")
 
             result = self._get_translation(translation, values)
+
+            # Bounded cache - prevent unbounded growth
+            if len(self._previous_translations) >= self._cache_max_size:
+                # Simple FIFO eviction: remove oldest items (first half)
+                keys_to_remove = list(self._previous_translations.keys())[: self._cache_max_size // 4]
+                for k in keys_to_remove:
+                    del self._previous_translations[k]
+
             self._previous_translations[cache_key] = result
             return result
 

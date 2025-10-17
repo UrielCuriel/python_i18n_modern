@@ -1,36 +1,22 @@
-"""Helper functions for i18n_modern."""
+"""Helper functions for i18n_modern.
+
+Optimizations added:
+- Visitor object pooling for deep traversal
+- Optional fast paths via Cython (see :mod:`i18n_modern._accel`)
+- Modular AST-based conditional evaluation
+- Separate value substitution system
+"""
 
 from __future__ import annotations
 
-import ast
-import functools
-import logging
-import operator
-import re
-from collections.abc import Generator, Mapping
-from typing import Callable, cast
+from collections import deque
+from collections.abc import Mapping
+from typing import cast
 
-from .types import FormatParam, FormatValue, LocaleDict, LocaleValue
-
-# Precompiled regex patterns for performance
-_FORMAT_VALUE_PATTERN: re.Pattern[str] = re.compile(r"\[(.*?)\]")
-_IS_SAFE_STRING_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:\[?(\d+|\w+)\]?)(?:(?:(?:\s?)(?:[\>\=\!\<\|\&]|and|or){1,3}(?:\s?)(?:\[?(\d+|\w+)\]?))*)?$"
-)
-
-_STRING_COMPARATORS: dict[type[ast.cmpop], Callable[[str, str], bool]] = {
-    ast.Gt: operator.gt,
-    ast.GtE: operator.ge,
-    ast.Lt: operator.lt,
-    ast.LtE: operator.le,
-}
-
-_NUMERIC_COMPARATORS: dict[type[ast.cmpop], Callable[[float, float], bool]] = {
-    ast.Gt: operator.gt,
-    ast.GtE: operator.ge,
-    ast.Lt: operator.lt,
-    ast.LtE: operator.le,
-}
+from ._accel import format_value_fast, get_deep_value_fast
+from .conditional_evaluator import ConditionalKeyEvaluator
+from .types import FormatParam, LocaleDict, LocaleValue
+from .value_substitution import ValueSubstitutor
 
 
 class TreePathVisitor:
@@ -46,6 +32,11 @@ class TreePathVisitor:
         Args:
             segments: Path segments to traverse (e.g., ["user", "profile", "name"])
         """
+        self.segments = segments
+        self.segment_index = 0
+
+    def reset(self, segments: list[str]) -> None:
+        """Reset the visitor to reuse the same instance from a pool."""
         self.segments = segments
         self.segment_index = 0
 
@@ -75,26 +66,36 @@ class TreePathVisitor:
         return self.visit(next_node)
 
 
-def _walk_segments_generator(
-    current: LocaleValue | None, segments: list[str]
-) -> Generator[tuple[int, LocaleValue | None], None, None]:
+class _TreePathVisitorPool:
+    """Optimized pool for TreePathVisitor instances with pre-allocated instances.
+
+    This pool is intentionally simple (LIFO) and not thread-safe. Each thread
+    using get_deep_value should maintain its own instances through the GIL.
     """
-    Generate values at each segment of a path using lazy evaluation.
 
-    Args:
-        current: Starting value
-        segments: Path segments to walk
+    def __init__(self, maxsize: int = 128, prealloc: int = 32) -> None:
+        self._pool: deque[TreePathVisitor] = deque()
+        self._max: int = maxsize
+        # Pre-allocate a set of visitors
+        for _ in range(prealloc):
+            self._pool.append(TreePathVisitor([]))
 
-    Yields:
-        Tuples of (segment_index, value)
-    """
-    for index, segment in enumerate(segments):
-        if current is None or not isinstance(current, Mapping):
-            yield index, None
-            return
+    def acquire(self, segments: list[str]) -> TreePathVisitor:
+        try:
+            visitor = self._pool.pop()
+            visitor.reset(segments)
+            return visitor
+        except IndexError:
+            return TreePathVisitor(segments)
 
-        current = current.get(segment)
-        yield index, current
+    def release(self, visitor: TreePathVisitor) -> None:
+        # Avoid holding onto large segment lists
+        visitor.reset([])
+        if len(self._pool) < self._max:
+            self._pool.append(visitor)
+
+
+_VISITOR_POOL = _TreePathVisitorPool()
 
 
 def get_deep_value(obj: LocaleValue | None, path: str) -> LocaleValue | None:
@@ -111,9 +112,18 @@ def get_deep_value(obj: LocaleValue | None, path: str) -> LocaleValue | None:
     if not path:
         return None
 
+    # Try accelerated path first (no-op if not available)
+    if isinstance(obj, Mapping):
+        ok, result = get_deep_value_fast(cast(Mapping[str, object] | None, obj), path)
+        if ok:
+            return cast(LocaleValue | None, result)
+
     segments: list[str] = path.split(".")
-    visitor = TreePathVisitor(segments)
-    return visitor.visit(obj)
+    visitor = _VISITOR_POOL.acquire(segments)
+    try:
+        return visitor.visit(obj)
+    finally:
+        _VISITOR_POOL.release(visitor)
 
 
 def _get_from_segments(current: LocaleValue | None, segments: list[str]) -> LocaleValue | None:
@@ -143,24 +153,7 @@ def eval_key(key: str, values: FormatParam | None = None) -> bool:
     Returns:
         Boolean result of evaluation
     """
-    if not is_safe_string(key):
-        logging.warning("evalKey: key '%s' is not a safe string", key)
-        return False
-
-    logical_tokens = ("==", "!=", ">=", "<=", ">", "<", " and ", " or ")
-
-    # Replace && with 'and' and || with 'or' for Python
-    key_formatted = key.replace("&&", " and ").replace("||", " or ")
-    key_formatted = format_value(key_formatted, values)
-
-    if any(token in key_formatted for token in logical_tokens):
-        return _evaluate_expression(key_formatted)
-
-    if not values:
-        return False
-
-    search_value = key_formatted.strip()
-    return search_value in values or search_value in {str(v) for v in values.values()}
+    return ConditionalKeyEvaluator.evaluate(key, values)
 
 
 def format_value(string: str, values: FormatParam | None = None) -> str:
@@ -177,15 +170,12 @@ def format_value(string: str, values: FormatParam | None = None) -> str:
     if values is None or not values:
         return string
 
-    replacements = values
+    # Accelerated fast path if available
+    ok, s = format_value_fast(string, values)
+    if ok:
+        return s
 
-    def replacer(match: re.Match[str]) -> str:
-        key = match.group(1)
-        if key in replacements:
-            return str(replacements[key])
-        return match.group(0)
-
-    return _FORMAT_VALUE_PATTERN.sub(replacer, string)
+    return ValueSubstitutor.substitute(string, values)
 
 
 def is_safe_string(string: str) -> bool:
@@ -198,64 +188,7 @@ def is_safe_string(string: str) -> bool:
     Returns:
         True if string is safe to evaluate
     """
-    reserved_words = [
-        "break",
-        "case",
-        "catch",
-        "class",
-        "const",
-        "continue",
-        "debugger",
-        "delete",
-        "do",
-        "enum",
-        "export",
-        "extends",
-        "false",
-        "finally",
-        "for",
-        "function",
-        "if",
-        "import",
-        "isinstance",
-        "interface",
-        "let",
-        "new",
-        "null",
-        "package",
-        "private",
-        "protected",
-        "public",
-        "return",
-        "static",
-        "super",
-        "switch",
-        "this",
-        "throw",
-        "true",
-        "try",
-        "typeof",
-        "var",
-        "void",
-        "while",
-        "with",
-        "alert",
-        "console",
-        "script",
-        "eval",
-        "exec",
-        "__import__",
-        "open",
-        "compile",
-    ]
-
-    # Replace && and || for validation
-    test_string = string.replace("&&", "and").replace("||", "or")
-
-    # Regex to validate expression format - updated to allow 'and', 'or'
-    return _IS_SAFE_STRING_PATTERN.match(test_string) is not None and all(
-        word not in test_string for word in reserved_words
-    )
+    return ConditionalKeyEvaluator.is_safe_expression(string)
 
 
 def merge_deep(obj1: Mapping[str, LocaleValue] | None, obj2: Mapping[str, LocaleValue]) -> LocaleDict:
@@ -336,89 +269,3 @@ class DictMergeVisitor:
             return visitor.visit(existing_mapping, value_mapping)
 
         return new_value
-
-
-@functools.lru_cache(maxsize=128)
-def _evaluate_expression(expression: str) -> bool:
-    """Safely evaluate a boolean expression constructed from locale keys."""
-
-    try:
-        tree = ast.parse(expression, mode="eval")
-    except SyntaxError:
-        return False
-
-    try:
-        return _evaluate_condition(tree.body)
-    except ValueError:
-        return False
-
-
-def _evaluate_condition(node: ast.expr) -> bool:
-    """Evaluate a parsed AST node that represents a conditional expression."""
-
-    if isinstance(node, ast.BoolOp):
-        results = [_evaluate_condition(value) for value in node.values]
-        if isinstance(node.op, ast.And):
-            return all(results)
-        if isinstance(node.op, ast.Or):
-            return any(results)
-        raise ValueError
-
-    if isinstance(node, ast.Compare):
-        left = _evaluate_operand(node.left)
-        for operator, comparator in zip(node.ops, node.comparators):
-            right = _evaluate_operand(comparator)
-            if not _apply_comparator(operator, left, right):
-                return False
-            left = right
-        return True
-
-    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
-        return node.value
-
-    raise ValueError
-
-
-def _evaluate_operand(node: ast.expr) -> FormatValue:
-    """Evaluate an operand within a conditional expression."""
-
-    if isinstance(node, ast.Constant) and isinstance(node.value, (bool, int, float, str)):
-        return node.value
-
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        operand = _evaluate_operand(node.operand)
-        if isinstance(operand, (int, float)):
-            return operand if isinstance(node.op, ast.UAdd) else -operand
-        raise ValueError
-
-    raise ValueError
-
-
-def _apply_comparator(operator: ast.cmpop, left: FormatValue, right: FormatValue) -> bool:
-    """Apply a comparator node between two evaluated operands."""
-
-    try:
-        if isinstance(operator, ast.Eq):
-            return left == right
-        if isinstance(operator, ast.NotEq):
-            return left != right
-        if isinstance(operator, (ast.Gt, ast.GtE, ast.Lt, ast.LtE)):
-            return _compare_ordered(operator, left, right)
-    except TypeError as error:  # pragma: no cover - defensive guard
-        raise ValueError from error
-
-    raise ValueError
-
-
-def _compare_ordered(operator: ast.cmpop, left: FormatValue, right: FormatValue) -> bool:
-    """Compare two values using an ordering-aware comparator."""
-
-    comparator_str = _STRING_COMPARATORS.get(type(operator))
-    if comparator_str and isinstance(left, str) and isinstance(right, str):
-        return comparator_str(left, right)
-
-    comparator_num = _NUMERIC_COMPARATORS.get(type(operator))
-    if comparator_num and isinstance(left, (int, float, bool)) and isinstance(right, (int, float, bool)):
-        return comparator_num(float(left), float(right))
-
-    raise ValueError

@@ -1,6 +1,6 @@
 [project]
 name = "i18n_modern"
-version = "0.1.0"
+version = "0.2.0"
 description = "A modern internationalization library for Python with support for JSON, YAML, and TOML"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -29,14 +29,29 @@ dependencies = []
 [project.optional-dependencies]
 yaml = ["pyyaml>=6.0"]
 toml = ["tomli>=2.3.0; python_version<'3.11'"]
-benchmark = ["python-i18n>=0.3.9", "pyi18n-v2>=1.2.0"]
+benchmark = [
+    "python-i18n>=0.3.9",
+    "pyi18n-v2>=1.2.0",
+    "cython>=3.0.0",
+    "i18nice",
+    "toml-i18n",
+]
 all = [
     "pyyaml>=6.0",
     "tomli>=2.3.0; python_version<'3.11'",
     "python-i18n>=0.3.9",
     "pyi18n-v2>=1.2.0",
+    "i18nice",
+    "toml-i18n",
 ]
-dev = ["pytest", "pytest-cov", "ruff", "pyrefly", "basedpyright"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "pyrefly",
+    "basedpyright",
+    "cython>=3.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/UrielCuriel/python_i18n_modern"
