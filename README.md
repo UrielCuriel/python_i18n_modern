@@ -16,16 +16,16 @@ A modern internationalization (i18n) library for Python, inspired by [i18n_moder
 
 ```bash
 # Basic installation (JSON support only)
-pip install python-i18n-modern
+pip install i18n_modern
 
 # With YAML support
-pip install python-i18n-modern[yaml]
+pip install i18n_modern[yaml]
 
 # With TOML support (Python < 3.11)
-pip install python-i18n-modern[toml]
+pip install i18n_modern[toml]
 
 # With all formats
-pip install python-i18n-modern[all]
+pip install i18n_modern[all]
 ```
 
 ## Quick Start
@@ -168,6 +168,34 @@ print(i18n.get("greeting", values={"name": "World"}))
 print(i18n.get("greeting", locale="es", values={"name": "Mundo"}))
 ```
 
+### Loading from Directory
+
+You can load all translation files from a directory at once. This is useful when you have multiple files for a single locale.
+
+```python
+# Structure:
+# locales/
+# ├── es_MX/
+# │   ├── auth.yml
+# │   ├── common.yml
+# │   ├── document.yml
+# │   └── roles.yml
+
+i18n = I18nModern("es_MX")
+
+# Load all files from directory - they will be merged together
+# The directory name (es_MX) is used as the locale identifier
+i18n.load_from_directory("locales/es_MX")
+
+# Or specify a custom locale identifier
+i18n.load_from_directory("locales/es_MX", locale_identify="spanish_mexico")
+
+# Now you can access all translations
+print(i18n.get("auth.login"))      # From auth.yml
+print(i18n.get("common.welcome"))  # From common.yml
+print(i18n.get("document.create")) # From document.yml
+```
+
 ### Changing Default Locale
 
 ```python
@@ -199,6 +227,26 @@ Load translations from a file.
 
 - `file_path` (str): Path to JSON, YAML, or TOML file
 - `locale_identify` (str): Locale identifier
+
+### `load_from_directory(directory_path, locale_identify=None)`
+
+Load all translation files from a directory concurrently.
+
+- `directory_path` (str): Path to directory containing locale files (JSON, YAML, TOML)
+- `locale_identify` (str, optional): Locale identifier. If None, uses the directory name
+- All files in the directory are merged together into a single locale entry
+
+**Supported file formats in directory:** `.json`, `.yaml`, `.yml`, `.toml`
+
+**Example:**
+```python
+i18n = I18nModern("es_MX")
+# Loads all .json, .yaml, .yml, and .toml files from the directory
+i18n.load_from_directory("locales/es_MX")
+
+# With custom locale identifier
+i18n.load_from_directory("locales/es_MX", locale_identify="spanish")
+```
 
 ### `load_from_value(locales, locale_identify)`
 

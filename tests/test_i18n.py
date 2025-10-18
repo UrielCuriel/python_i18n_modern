@@ -166,3 +166,81 @@ def test_multiple_locale_setting() -> None:
 
     i18n.default_locale = "de"
     assert i18n.default_locale == "de"
+
+
+def test_load_from_directory() -> None:
+    """Test loading all files from a directory."""
+    from pathlib import Path
+
+    # Use the example directory with multiple YAML files
+    examples_dir = Path(__file__).parent.parent / "examples" / "locales" / "es_MX"
+
+    if examples_dir.exists():
+        i18n = I18nModern("es_MX")
+        i18n.load_from_directory(str(examples_dir), locale_identify="es_MX")
+
+        # Check that files were loaded and merged
+        # From auth.yml
+        assert i18n.get("auth.login", locale="es_MX") == "Iniciar sesión"
+        # From common.yml
+        assert i18n.get("common.welcome", locale="es_MX") == "Bienvenido a nuestra aplicación"
+        # From document.yml
+        assert i18n.get("document.create", locale="es_MX") == "Crear documento"
+        # From roles.yml
+        assert i18n.get("roles.admin", locale="es_MX") == "Administrador"
+        # From users.yml
+        assert i18n.get("users.name", locale="es_MX") == "Nombre"
+
+
+def test_load_from_directory_with_auto_locale_name() -> None:
+    """Test that directory name is used as locale when not specified."""
+    from pathlib import Path
+
+    examples_dir = Path(__file__).parent.parent / "examples" / "locales" / "es_MX"
+
+    if examples_dir.exists():
+        i18n = I18nModern("es_MX")
+        # Don't specify locale_identify, should use directory name "es_MX"
+        i18n.load_from_directory(str(examples_dir))
+
+        # Should be able to get translations using the directory name
+        assert i18n.get("auth.login", locale="es_MX") == "Iniciar sesión"
+
+
+def test_load_from_directory_not_found() -> None:
+    """Test that loading from nonexistent directory raises FileNotFoundError."""
+    i18n = I18nModern("en")
+
+    with pytest.raises(FileNotFoundError):
+        i18n.load_from_directory("/nonexistent/path", locale_identify="en")
+
+
+def test_load_from_directory_not_a_directory() -> None:
+    """Test that loading from a file path raises ValueError."""
+    from pathlib import Path
+
+    # Use a file that exists
+    file_path = Path(__file__).parent.parent / "README.md"
+
+    if file_path.exists():
+        i18n = I18nModern("en")
+
+        with pytest.raises(ValueError, match="not a directory"):
+            i18n.load_from_directory(str(file_path), locale_identify="en")
+
+
+def test_load_from_directory_no_supported_files() -> None:
+    """Test that loading from directory with no supported files raises ValueError."""
+    import tempfile
+    from pathlib import Path
+
+    i18n = I18nModern("en")
+
+    # Create a temporary directory with no supported files
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create some non-supported files
+        Path(tmpdir, "file.txt").write_text("Some text")
+        Path(tmpdir, "file.md").write_text("# Markdown")
+
+        with pytest.raises(ValueError, match="No supported locale files found"):
+            i18n.load_from_directory(tmpdir, locale_identify="en")

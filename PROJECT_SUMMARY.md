@@ -128,10 +128,10 @@ Run tests: `python tests/test_i18n.py`
 
 ```bash
 # Basic (JSON only)
-pip install python-i18n-modern
+pip install i18n_modern
 
 # With all formats
-pip install python-i18n-modern[all]
+pip install i18n_modern[all]
 ```
 
 ## Quick Start

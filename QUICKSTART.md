@@ -4,12 +4,12 @@
 
 ### Basic (JSON support only)
 ```bash
-pip install python-i18n-modern
+pip install i18n_modern
 ```
 
 ### With all format support
 ```bash
-pip install python-i18n-modern[all]
+pip install i18n_modern[all]
 ```
 
 ## 5-Minute Tutorial

@@ -129,6 +129,57 @@ class I18nModern:
                 return cast(LocaleDict, tomli.load(f))  # type: ignore
         raise ValueError(f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml")
 
+    def load_from_directory(self, directory_path: str, locale_identify: str | None = None) -> None:
+        """
+        Load all locale files from a directory concurrently.
+
+        Files are merged together and stored under the specified locale.
+        Supports JSON, YAML (yml/yaml), and TOML formats.
+
+        Args:
+            directory_path: Path to the directory containing locale files
+            locale_identify: Locale identifier. If None, uses the directory name
+
+        Raises:
+            FileNotFoundError: If directory does not exist
+            ValueError: If directory contains no supported locale files
+        """
+        path = Path(directory_path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"Locale directory not found: {directory_path}")
+
+        if not path.is_dir():
+            raise ValueError(f"Path is not a directory: {directory_path}")
+
+        # Use directory name as locale if not specified
+        if locale_identify is None:
+            locale_identify = path.name
+
+        # Find all supported locale files
+        supported_extensions = {".json", ".yaml", ".yml", ".toml"}
+        locale_files = [f for f in path.iterdir() if f.is_file() and f.suffix.lower() in supported_extensions]
+
+        if not locale_files:
+            raise ValueError(
+                f"No supported locale files found in directory: {directory_path}. "
+                f"Supported formats: {', '.join(supported_extensions)}"
+            )
+
+        # Load all files concurrently
+        results: list[tuple[str, LocaleDict]] = []
+        with ThreadPoolExecutor() as executor:
+            futures = [executor.submit(self._task_load_locale, str(f), locale_identify) for f in locale_files]
+            for fut in as_completed(futures):
+                results.append(fut.result())
+
+        # Merge all loaded data into a single locale entry
+        merged_data: LocaleDict = {}
+        for _, data in results:
+            merged_data = merge_deep(merged_data, data)
+
+        self._locales[locale_identify] = merge_deep(self._locales.get(self._default_locale), merged_data)
+
     def _task_load_locale(self, file_path: str, locale: str) -> tuple[str, LocaleDict]:
         path = Path(file_path)
         if not path.exists():

@@ -435,16 +435,12 @@ wheels = [
 
 [[package]]
 name = "i18n-modern"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 
 [package.optional-dependencies]
 all = [
-    { name = "i18nice" },
-    { name = "pyi18n-v2" },
-    { name = "python-i18n" },
     { name = "pyyaml" },
-    { name = "toml-i18n" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 benchmark = [
@@ -476,19 +472,15 @@ requires-dist = [
     { name = "basedpyright", marker = "extra == 'dev'" },
     { name = "cython", marker = "extra == 'benchmark'", specifier = ">=3.0.0" },
     { name = "cython", marker = "extra == 'dev'", specifier = ">=3.0.0" },
-    { name = "i18nice", marker = "extra == 'all'" },
     { name = "i18nice", marker = "extra == 'benchmark'" },
-    { name = "pyi18n-v2", marker = "extra == 'all'", specifier = ">=1.2.0" },
     { name = "pyi18n-v2", marker = "extra == 'benchmark'", specifier = ">=1.2.0" },
     { name = "pyrefly", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "python-i18n", marker = "extra == 'all'", specifier = ">=0.3.9" },
     { name = "python-i18n", marker = "extra == 'benchmark'", specifier = ">=0.3.9" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "toml-i18n", marker = "extra == 'all'" },
     { name = "toml-i18n", marker = "extra == 'benchmark'" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'all'", specifier = ">=2.3.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'toml'", specifier = ">=2.3.0" },
