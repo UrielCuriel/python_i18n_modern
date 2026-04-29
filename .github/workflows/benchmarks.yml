@@ -1,0 +1,124 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Avoid running multiple benchmark jobs for the same ref in parallel
+# (would skew measurements).
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Run benchmark suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install project + benchmark extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[benchmark]"
+
+      # ----------------------------------------------------------------
+      # On pull requests: try to download the latest baseline produced
+      # by main so we can run a comparison.
+      # ----------------------------------------------------------------
+      - name: Download main baseline (PRs only)
+        if: github.event_name == 'pull_request'
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        id: baseline
+        with:
+          workflow: benchmarks.yml
+          branch: main
+          name: benchmark-baseline
+          path: .benchmarks-baseline
+          if_no_artifact_found: warn
+
+      - name: Restore baseline into pytest-benchmark storage
+        if: github.event_name == 'pull_request' && steps.baseline.outcome == 'success'
+        run: |
+          mkdir -p .benchmarks
+          # pytest-benchmark stores per-machine subdirs; copy the whole tree.
+          cp -r .benchmarks-baseline/* .benchmarks/ || true
+          ls -R .benchmarks || true
+
+      # ----------------------------------------------------------------
+      # Run the suite.
+      # ----------------------------------------------------------------
+      - name: Run benchmarks (push to main / manual)
+        if: github.event_name != 'pull_request'
+        run: |
+          pytest benchmarks/ \
+            --benchmark-only \
+            --benchmark-save=main \
+            --benchmark-json=bench.json
+
+      - name: Run benchmarks (PR with baseline comparison)
+        if: github.event_name == 'pull_request' && steps.baseline.outcome == 'success'
+        run: |
+          # Compare against the most recent saved baseline named "main".
+          # Fail if median regressed by more than 15%.
+          pytest benchmarks/ \
+            --benchmark-only \
+            --benchmark-compare=main \
+            --benchmark-compare-fail=median:15% \
+            --benchmark-json=bench.json
+
+      - name: Run benchmarks (PR without baseline)
+        if: github.event_name == 'pull_request' && steps.baseline.outcome != 'success'
+        run: |
+          echo "::warning::No baseline found from main; running without comparison."
+          pytest benchmarks/ \
+            --benchmark-only \
+            --benchmark-json=bench.json
+
+      # ----------------------------------------------------------------
+      # Render Markdown report and publish artifacts.
+      # ----------------------------------------------------------------
+      - name: Render Markdown report
+        if: always()
+        run: |
+          # Auto-discover the latest run per (machine, save) under .benchmarks/
+          # and concatenate them into a single report.
+          python scripts.generate_benchmark_report
+          echo "## Benchmark Report" >> "$GITHUB_STEP_SUMMARY"
+          cat BENCHMARK_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            bench.json
+            BENCHMARK_REPORT.md
+          if-no-files-found: warn
+
+      # ----------------------------------------------------------------
+      # On main: publish the .benchmarks/ tree as the new baseline so
+      # future PRs can compare against it.
+      # ----------------------------------------------------------------
+      - name: Publish baseline (main only)
+        if: github.event_name != 'pull_request' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: .benchmarks
+          if-no-files-found: error
+          retention-days: 90

@@ -34,6 +34,8 @@ benchmark = [
     "cython>=3.0.0",
     "i18nice",
     "toml-i18n",
+    "pytest>=7.0",
+    "pytest-benchmark>=4.0",
 ]
 all = ["pyyaml>=6.0", "tomli>=2.3.0; python_version<'3.11'"]
 dev = [
@@ -41,6 +43,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "pyrefly",
+    "tomli>=2.3.0; python_version<'3.11'",
     "basedpyright",
     "cython>=3.0.0",
     "setuptools>=75.3.4",
@@ -54,3 +57,23 @@ Issues = "https://github.com/UrielCuriel/python_i18n_modern/issues"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+markers = [
+    "benchmark: performance benchmarks (run with --benchmark-only)",
+]
+# Make `pytest` ignore the benchmark suite by default; opt-in with
+# `pytest benchmarks/ --benchmark-only`.
+testpaths = ["tests"]
+# Defaults for pytest-benchmark to reduce variance run-to-run.
+# These only take effect when the `benchmarks/` suite is invoked.
+addopts = [
+    "--benchmark-disable-gc",
+    "--benchmark-warmup=on",
+    "--benchmark-warmup-iterations=1000",
+    "--benchmark-min-rounds=20",
+    "--benchmark-calibration-precision=10",
+    "--benchmark-sort=mean",
+    "--benchmark-group-by=group",
+    "--benchmark-columns=min,mean,median,stddev,ops,rounds",
+]
