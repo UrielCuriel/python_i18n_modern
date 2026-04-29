@@ -68,7 +68,11 @@ def python_i18n_module(locales_dir: Path):
     py_i18n.set("locale", "en")
     py_i18n.set("filename_format", "{namespace}.{locale}.json")
     py_i18n.set("file_format", "json")
-    py_i18n.set("default_locale", "en")
+    # Compatibility across i18n variants: some use `default_locale`, others `fallback`.
+    try:
+        py_i18n.set("default_locale", "en")
+    except KeyError:
+        py_i18n.set("fallback", "en")
     py_i18n.load_path.clear()  # type: ignore[attr-defined]
     py_i18n.load_path.append(str(locales_dir))  # type: ignore[attr-defined]
     return py_i18n

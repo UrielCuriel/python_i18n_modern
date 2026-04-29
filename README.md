@@ -15,16 +15,18 @@ A modern internationalization (i18n) library for Python, inspired by [i18n_moder
 
 ## Performance
 
-Benchmarked against the most popular Python i18n libraries (10,000 iterations, Python 3.12.8):
+Benchmarked against popular Python i18n libraries using `pytest-benchmark` on Linux and Windows (latest baseline: `v0.2.3`).
 
-| Operation | i18n_modern | python-i18n | pyi18n-v2 | i18nice |
-| ----------- | :-----------: | :-----------: | :---------: | :-------: |
-| Simple key access | **0.23µs** | 0.79µs | 0.40µs | 1.51µs |
-| Nested key access | **0.17µs** | 66.90µs | 0.64µs | 1.55µs |
-| Parameter substitution | **0.43µs** | 0.99µs | 0.83µs | 1.91µs |
-| Conditional logic | **0.75µs** | ✗ | ✗ | ✗ |
+| Operation | Resultado consistente |
+| ----------- | ----------- |
+| Simple key access | **i18n_modern** is fastest in both Linux and Windows |
+| Nested key access | **i18n_modern** is fastest in both Linux and Windows |
+| Parameter substitution | **i18n_modern** is fastest in both Linux and Windows |
+| Conditional logic | Available in **i18n_modern** benchmark suite |
 
-> **384x faster** than python-i18n for nested key access. See [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) for the full analysis.
+> Up to **580x faster** than python-i18n on nested key access (Windows benchmark run).
+
+For complete numbers, environment details, and per-library ranking, see [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md).
 
 ## Installation
 
@@ -207,10 +209,23 @@ i18n.load_from_directory("locales/es_MX")
 # Or specify a custom locale identifier
 i18n.load_from_directory("locales/es_MX", locale_identify="spanish_mexico")
 
+# Use filename as namespace for this specific call
+i18n.load_from_directory("locales/es_MX", use_filename_as_namespace=True)
+
 # Now you can access all translations
 print(i18n.get("auth.login"))      # From auth.yml
 print(i18n.get("common.welcome"))  # From common.yml
 print(i18n.get("document.create")) # From document.yml
+```
+
+You can also enable this behavior at instance level:
+
+```python
+i18n = I18nModern("es_MX", use_filename_as_namespace=True)
+i18n.load_from_directory("locales/es_MX")
+
+# Or toggle it later
+i18n.use_filename_as_namespace = True
 ```
 
 ### Changing Default Locale
@@ -222,12 +237,15 @@ translation = i18n.get("welcome")  # Now uses Spanish
 
 ## API Reference
 
-### `I18nModern(default_locale, locales=None)`
+### `I18nModern(default_locale, locales=None, use_filename_as_namespace=False)`
 
 Constructor for the i18n instance.
 
 - `default_locale` (str): The default locale identifier
 - `locales` (dict or str, optional): Initial locales dictionary or path to locale file
+- `use_filename_as_namespace` (bool, optional): Default behavior for directory
+    imports. When `True`, each file is namespaced by filename stem (for example,
+    `common.yml` -> `common.*`)
 
 ### `get(key, locale=None, values=None)`
 
@@ -245,12 +263,14 @@ Load translations from a file.
 - `file_path` (str): Path to JSON, YAML, or TOML file
 - `locale_identify` (str): Locale identifier
 
-### `load_from_directory(directory_path, locale_identify=None)`
+### `load_from_directory(directory_path, locale_identify=None, use_filename_as_namespace=None)`
 
 Load all translation files from a directory concurrently.
 
 - `directory_path` (str): Path to directory containing locale files (JSON, YAML, TOML)
 - `locale_identify` (str, optional): Locale identifier. If None, uses the directory name
+- `use_filename_as_namespace` (bool, optional): Per-call override. If `True`, wraps
+    every file under its filename stem; if `None`, uses the instance setting
 - All files in the directory are merged together into a single locale entry
 
 **Supported file formats in directory:** `.json`, `.yaml`, `.yml`, `.toml`
@@ -264,6 +284,9 @@ i18n.load_from_directory("locales/es_MX")
 
 # With custom locale identifier
 i18n.load_from_directory("locales/es_MX", locale_identify="spanish")
+
+# With per-call namespace override
+i18n.load_from_directory("locales/es_MX", use_filename_as_namespace=True)
 ```
 
 ### `load_from_value(locales, locale_identify)`
@@ -276,6 +299,8 @@ Load translations from a dictionary.
 ### Properties
 
 - `default_locale`: Get or set the default locale
+- `use_filename_as_namespace`: Get or set filename namespacing behavior for
+    directory imports
 
 ## License
 
