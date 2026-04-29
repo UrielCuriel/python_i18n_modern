@@ -202,28 +202,42 @@ def is_safe_string(string: str) -> bool:
 # brackets ( [ ] ), comparison/equality operators ( < > = ! ), and spaces.
 _CONDITIONAL_KEY_RE = re.compile(r"[\[\]<>=! ]")
 
+# Regex for valid Python identifiers (pure namespace keys)
+_VALID_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-def _has_conditional_keys(d: Mapping[str, object]) -> bool:
-    """Return True if *any* key in *d* looks like a conditional expression.
 
-    Keys such as ``"[age] < 18"`` or ``"[count] >= 2"`` contain brackets,
-    comparison operators, or spaces, which makes the whole dict a
-    conditional/dynamic block that must be kept nested so that
-    :func:`eval_key` can evaluate it at runtime.
+def _is_pure_namespace(d: Mapping[str, object]) -> bool:
+    """Return True if all keys are valid Python identifiers (pure namespace structure).
+
+    A pure namespace dict has all keys that:
+    - Are valid Python identifiers (start with letter/underscore, contain only alphanumeric/underscore)
+    - Excludes numeric strings like "0", "1" (value alternatives)
+    - Excludes "default" (special keyword for value alternatives)
+
+    Examples of pure namespaces:
+    - {"user", "profile"} ✓ Can flatten
+    - {"messages": {"success", "error"}} ✓ Can flatten
+
+    Examples of value dicts (should NOT flatten):
+    - {"0": "No items", "1": "One item", "default": "[count] items"} ✗ Keep nested
+    - {"[age] < 18": "Minor", "[age] >= 18": "Adult", "default": "Unknown"} ✗ Keep nested
     """
-    return any(_CONDITIONAL_KEY_RE.search(k) for k in d)
+    return all(
+        _VALID_IDENTIFIER_RE.match(str(k)) is not None and k not in ("default",)
+        for k in d.keys()
+    )
 
 
 def flatten_locale(d: LocaleDict, prefix: str = "") -> LocaleDict:
     """Flatten a nested locale dict into a single-level dict with dot-notation keys.
 
     Structural dicts (pure namespace containers whose keys are all plain
-    identifiers/digits) are recursively inlined so their children can be
+    Python identifiers) are recursively inlined so their children can be
     accessed in O(1) with a direct dict lookup instead of a tree traversal.
 
-    Conditional/dynamic dicts — those where **at least one key** matches
-    :data:`_CONDITIONAL_KEY_RE` — are stored as-is so that
-    :func:`eval_key` can evaluate their keys at translation time.
+    Value dicts — those containing numeric keys, "default", or conditional
+    expressions — are stored as-is so that :func:`eval_key` can evaluate
+    their keys at translation time.
 
     Example::
 
@@ -232,6 +246,11 @@ def flatten_locale(d: LocaleDict, prefix: str = "") -> LocaleDict:
         ...     "messages": {
         ...         "success": "OK",
         ...         "error": "Fail",
+        ...     },
+        ...     "items": {
+        ...         "0": "No items",
+        ...         "1": "One item",
+        ...         "default": "[count] items",
         ...     },
         ...     "age_group": {
         ...         "[age] < 18": "Minor",
@@ -243,6 +262,7 @@ def flatten_locale(d: LocaleDict, prefix: str = "") -> LocaleDict:
             'greeting': 'Hello, [name]!',
             'messages.success': 'OK',
             'messages.error': 'Fail',
+            'items': {'0': 'No items', '1': 'One item', 'default': '[count] items'},
             'age_group': {'[age] < 18': 'Minor', '[age] >= 18': 'Adult', 'default': 'Unknown'},
         }
 
@@ -257,13 +277,13 @@ def flatten_locale(d: LocaleDict, prefix: str = "") -> LocaleDict:
     result: LocaleDict = {}
     for key, value in d.items():
         full_key = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, Mapping) and not _has_conditional_keys(
+        if isinstance(value, Mapping) and _is_pure_namespace(
             cast(Mapping[str, object], value)
         ):
-            # Structural namespace dict — recurse and inline its children.
+            # Pure namespace dict — recurse and inline its children.
             result.update(flatten_locale(cast(LocaleDict, value), full_key))
         else:
-            # Plain string value or conditional dict — store directly.
+            # Plain string value or value dict — store directly.
             result[full_key] = value
     return result
 
