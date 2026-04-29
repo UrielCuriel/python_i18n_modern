@@ -9,26 +9,34 @@ import logging
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from types import ModuleType
 from typing import cast
 
-from i18n_modern.helpers import eval_key, format_value, get_deep_value, merge_deep
+from i18n_modern.helpers import (
+    eval_key,
+    flatten_locale,
+    format_value,
+    merge_deep,
+)
 from i18n_modern.types import FormatParam, LocaleDict, Locales, LocaleValue
 
+yaml: ModuleType | None = None
 yaml_available = False
 try:
     import yaml
 
     yaml_available = True
 except ImportError:
-    yaml = None
+    pass
 
+tomli: ModuleType | None = None
 toml_available = False
 try:
     import tomli
 
     toml_available = True
 except ImportError:
-    tomli = None
+    pass
 
 
 class I18nModern:
@@ -91,18 +99,26 @@ class I18nModern:
                     data = cast(LocaleDict, json.load(f))
         elif suffix in [".yaml", ".yml"]:
             if not yaml_available or yaml is None:
-                raise ImportError("PyYAML is required for YAML support. Install with: pip install pyyaml")
+                raise ImportError(
+                    "PyYAML is required for YAML support. Install with: pip install pyyaml"
+                )
             with open(path, "r", encoding="utf-8") as f:
                 data = cast(LocaleDict, yaml.safe_load(f))  # type: ignore
         elif suffix == ".toml":
             if not toml_available or tomli is None:
-                raise ImportError("tomli is required for TOML support. Install with: pip install tomli")
+                raise ImportError(
+                    "tomli is required for TOML support. Install with: pip install tomli"
+                )
             with open(path, "rb") as f:
                 data = cast(LocaleDict, tomli.load(f))  # type: ignore
         else:
-            raise ValueError(f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml")
+            raise ValueError(
+                f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml"
+            )
 
-        self._locales[locale_identify] = merge_deep(self._locales.get(self._default_locale), data)
+        self._locales[locale_identify] = flatten_locale(
+            merge_deep(self._locales.get(self._default_locale), data)
+        )
 
     def _load_path(self, path: Path) -> LocaleDict:
         """Load a single locale file from a path with mmap optimization for JSON."""
@@ -119,17 +135,25 @@ class I18nModern:
                     return cast(LocaleDict, json.load(f))
         if suffix in [".yaml", ".yml"]:
             if not yaml_available or yaml is None:
-                raise ImportError("PyYAML is required for YAML support. Install with: pip install pyyaml")
+                raise ImportError(
+                    "PyYAML is required for YAML support. Install with: pip install pyyaml"
+                )
             with open(path, "r", encoding="utf-8") as f:
                 return cast(LocaleDict, yaml.safe_load(f))  # type: ignore
         if suffix == ".toml":
             if not toml_available or tomli is None:
-                raise ImportError("tomli is required for TOML support. Install with: pip install tomli")
+                raise ImportError(
+                    "tomli is required for TOML support. Install with: pip install tomli"
+                )
             with open(path, "rb") as f:
                 return cast(LocaleDict, tomli.load(f))  # type: ignore
-        raise ValueError(f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml")
+        raise ValueError(
+            f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml"
+        )
 
-    def load_from_directory(self, directory_path: str, locale_identify: str | None = None) -> None:
+    def load_from_directory(
+        self, directory_path: str, locale_identify: str | None = None
+    ) -> None:
         """
         Load all locale files from a directory concurrently.
 
@@ -158,7 +182,11 @@ class I18nModern:
 
         # Find all supported locale files
         supported_extensions = {".json", ".yaml", ".yml", ".toml"}
-        locale_files = [f for f in path.iterdir() if f.is_file() and f.suffix.lower() in supported_extensions]
+        locale_files = [
+            f
+            for f in path.iterdir()
+            if f.is_file() and f.suffix.lower() in supported_extensions
+        ]
 
         if not locale_files:
             raise ValueError(
@@ -169,7 +197,10 @@ class I18nModern:
         # Load all files concurrently
         results: list[tuple[str, LocaleDict]] = []
         with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self._task_load_locale, str(f), locale_identify) for f in locale_files]
+            futures = [
+                executor.submit(self._task_load_locale, str(f), locale_identify)
+                for f in locale_files
+            ]
             for fut in as_completed(futures):
                 results.append(fut.result())
 
@@ -178,7 +209,9 @@ class I18nModern:
         for _, data in results:
             merged_data = merge_deep(merged_data, data)
 
-        self._locales[locale_identify] = merge_deep(self._locales.get(self._default_locale), merged_data)
+        self._locales[locale_identify] = flatten_locale(
+            merge_deep(self._locales.get(self._default_locale), merged_data)
+        )
 
     def _task_load_locale(self, file_path: str, locale: str) -> tuple[str, LocaleDict]:
         path = Path(file_path)
@@ -186,7 +219,9 @@ class I18nModern:
             raise FileNotFoundError(f"Locale file not found: {file_path}")
         return locale, self._load_path(path)
 
-    def load_many(self, files: Iterable[tuple[str, str]], max_workers: int | None = None) -> None:
+    def load_many(
+        self, files: Iterable[tuple[str, str]], max_workers: int | None = None
+    ) -> None:
         """Load multiple locale files concurrently.
 
         Args:
@@ -197,13 +232,17 @@ class I18nModern:
         # Load in parallel and merge safely once complete
         results: list[tuple[str, LocaleDict]] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self._task_load_locale, fp, loc) for fp, loc in files]
+            futures = [
+                executor.submit(self._task_load_locale, fp, loc) for fp, loc in files
+            ]
             for fut in as_completed(futures):
                 results.append(fut.result())
 
         # Merge results into _locales
         for locale, data in results:
-            self._locales[locale] = merge_deep(self._locales.get(self._default_locale), data)
+            self._locales[locale] = flatten_locale(
+                merge_deep(self._locales.get(self._default_locale), data)
+            )
 
     def load_from_value(self, locales: LocaleDict, locale_identify: str):
         """
@@ -213,9 +252,13 @@ class I18nModern:
             locales: The locales dictionary
             locale_identify: Locale identifier
         """
-        self._locales[locale_identify] = merge_deep(self._locales.get(self._default_locale), locales)
+        self._locales[locale_identify] = flatten_locale(
+            merge_deep(self._locales.get(self._default_locale), locales)
+        )
 
-    def get(self, key: str, locale: str | None = None, values: FormatParam | None = None) -> str:
+    def get(
+        self, key: str, locale: str | None = None, values: FormatParam | None = None
+    ) -> str:
         """
         Get a translation with memoization from a key and format params.
 
@@ -238,17 +281,22 @@ class I18nModern:
             if locale not in self._locales:
                 raise KeyError(f"Locale '{locale}' not found in locales")
 
-            translation: LocaleValue | None = get_deep_value(self._locales[locale], key)
+            # Flat dict — O(1) direct lookup; no tree traversal needed.
+            translation: LocaleValue | None = self._locales[locale].get(key)
 
             if translation is None:
-                raise KeyError(f"Translation key '{key}' not found in locale '{locale}'")
+                raise KeyError(
+                    f"Translation key '{key}' not found in locale '{locale}'"
+                )
 
             result = self._get_translation(translation, values)
 
             # Bounded cache - prevent unbounded growth
             if len(self._previous_translations) >= self._cache_max_size:
                 # Simple FIFO eviction: remove oldest items (first half)
-                keys_to_remove = list(self._previous_translations.keys())[: self._cache_max_size // 4]
+                keys_to_remove = list(self._previous_translations.keys())[
+                    : self._cache_max_size // 4
+                ]
                 for k in keys_to_remove:
                     del self._previous_translations[k]
 
@@ -256,11 +304,16 @@ class I18nModern:
             return result
 
         except Exception as error:
-            logging.warning("Error: the key '%s' is not defined in locales - %s", key, error)
+            logging.warning(
+                "Error: the key '%s' is not defined in locales - %s", key, error
+            )
             return key
 
     def _get_translation(
-        self, translation: LocaleValue, values: FormatParam | None = None, default_translation: str | None = None
+        self,
+        translation: LocaleValue,
+        values: FormatParam | None = None,
+        default_translation: str | None = None,
     ) -> str:
         """
         Get a translation from object and format it.
@@ -288,7 +341,9 @@ class I18nModern:
 
             # Return default if no key matches
             if default_translation:
-                return self._get_translation(default_translation, values, default_translation)  # type: ignore
+                return self._get_translation(
+                    default_translation, values, default_translation
+                )  # type: ignore
             return ""
 
         return format_value(translation, values)

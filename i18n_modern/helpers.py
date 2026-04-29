@@ -9,6 +9,7 @@ Optimizations added:
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from collections.abc import Mapping
 from typing import cast
@@ -126,7 +127,9 @@ def get_deep_value(obj: LocaleValue | None, path: str) -> LocaleValue | None:
         _VISITOR_POOL.release(visitor)
 
 
-def _get_from_segments(current: LocaleValue | None, segments: list[str]) -> LocaleValue | None:
+def _get_from_segments(
+    current: LocaleValue | None, segments: list[str]
+) -> LocaleValue | None:
     """Recursive helper to walk nested mappings using the provided path segments."""
 
     if not segments:
@@ -191,7 +194,83 @@ def is_safe_string(string: str) -> bool:
     return ConditionalKeyEvaluator.is_safe_expression(string)
 
 
-def merge_deep(obj1: Mapping[str, LocaleValue] | None, obj2: Mapping[str, LocaleValue]) -> LocaleDict:
+# ---------------------------------------------------------------------------
+# Locale flattening
+# ---------------------------------------------------------------------------
+
+# Matches any character that marks a key as a conditional expression:
+# brackets ( [ ] ), comparison/equality operators ( < > = ! ), and spaces.
+_CONDITIONAL_KEY_RE = re.compile(r"[\[\]<>=! ]")
+
+
+def _has_conditional_keys(d: Mapping[str, object]) -> bool:
+    """Return True if *any* key in *d* looks like a conditional expression.
+
+    Keys such as ``"[age] < 18"`` or ``"[count] >= 2"`` contain brackets,
+    comparison operators, or spaces, which makes the whole dict a
+    conditional/dynamic block that must be kept nested so that
+    :func:`eval_key` can evaluate it at runtime.
+    """
+    return any(_CONDITIONAL_KEY_RE.search(k) for k in d)
+
+
+def flatten_locale(d: LocaleDict, prefix: str = "") -> LocaleDict:
+    """Flatten a nested locale dict into a single-level dict with dot-notation keys.
+
+    Structural dicts (pure namespace containers whose keys are all plain
+    identifiers/digits) are recursively inlined so their children can be
+    accessed in O(1) with a direct dict lookup instead of a tree traversal.
+
+    Conditional/dynamic dicts — those where **at least one key** matches
+    :data:`_CONDITIONAL_KEY_RE` — are stored as-is so that
+    :func:`eval_key` can evaluate their keys at translation time.
+
+    Example::
+
+        >>> flatten_locale({
+        ...     "greeting": "Hello, [name]!",
+        ...     "messages": {
+        ...         "success": "OK",
+        ...         "error": "Fail",
+        ...     },
+        ...     "age_group": {
+        ...         "[age] < 18": "Minor",
+        ...         "[age] >= 18": "Adult",
+        ...         "default": "Unknown",
+        ...     },
+        ... })
+        {
+            'greeting': 'Hello, [name]!',
+            'messages.success': 'OK',
+            'messages.error': 'Fail',
+            'age_group': {'[age] < 18': 'Minor', '[age] >= 18': 'Adult', 'default': 'Unknown'},
+        }
+
+    Args:
+        d: The locale dict to flatten.
+        prefix: Dot-notation prefix accumulated during recursion (callers
+            should leave this at its default empty string).
+
+    Returns:
+        A new flat :class:`LocaleDict` with dot-notation keys.
+    """
+    result: LocaleDict = {}
+    for key, value in d.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, Mapping) and not _has_conditional_keys(
+            cast(Mapping[str, object], value)
+        ):
+            # Structural namespace dict — recurse and inline its children.
+            result.update(flatten_locale(cast(LocaleDict, value), full_key))
+        else:
+            # Plain string value or conditional dict — store directly.
+            result[full_key] = value
+    return result
+
+
+def merge_deep(
+    obj1: Mapping[str, LocaleValue] | None, obj2: Mapping[str, LocaleValue]
+) -> LocaleDict:
     """
     Merge deep objects recursively.
 
@@ -213,7 +292,9 @@ def merge_deep(obj1: Mapping[str, LocaleValue] | None, obj2: Mapping[str, Locale
         if isinstance(value, Mapping):
             value_mapping = cast(Mapping[str, LocaleValue], value)
             existing_mapping = (
-                cast(Mapping[str, LocaleValue] | None, existing) if isinstance(existing, Mapping) else None
+                cast(Mapping[str, LocaleValue] | None, existing)
+                if isinstance(existing, Mapping)
+                else None
             )
             merged[key] = merge_deep(existing_mapping, value_mapping)
         else:
@@ -231,7 +312,9 @@ class DictMergeVisitor:
         """Initialize the merge visitor."""
         self.merged = {}
 
-    def visit(self, obj1: Mapping[str, LocaleValue] | None, obj2: Mapping[str, LocaleValue]) -> LocaleDict:
+    def visit(
+        self, obj1: Mapping[str, LocaleValue] | None, obj2: Mapping[str, LocaleValue]
+    ) -> LocaleDict:
         """
         Visit and merge two dictionaries.
 
@@ -251,7 +334,9 @@ class DictMergeVisitor:
 
         return self.merged
 
-    def _merge_value(self, existing: LocaleValue | None, new_value: LocaleValue) -> LocaleValue:
+    def _merge_value(
+        self, existing: LocaleValue | None, new_value: LocaleValue
+    ) -> LocaleValue:
         """
         Merge a single value, recursing for nested dictionaries.
 
@@ -264,7 +349,11 @@ class DictMergeVisitor:
         """
         if isinstance(new_value, Mapping):
             value_mapping = cast(Mapping[str, LocaleValue], new_value)
-            existing_mapping = cast(Mapping[str, LocaleValue], existing) if isinstance(existing, Mapping) else None
+            existing_mapping = (
+                cast(Mapping[str, LocaleValue], existing)
+                if isinstance(existing, Mapping)
+                else None
+            )
             visitor = DictMergeVisitor()
             return visitor.visit(existing_mapping, value_mapping)
 

@@ -11,6 +11,20 @@ A modern internationalization (i18n) library for Python, inspired by [i18n_moder
 - 📝 Template string interpolation with `[placeholder]` syntax
 - 💾 Built-in memoization for better performance
 - 🔗 Deep object merging for locale inheritance
+- ⚡ Flat locale structure for O(1) key lookups at runtime
+
+## Performance
+
+Benchmarked against the most popular Python i18n libraries (10,000 iterations, Python 3.12.8):
+
+| Operation | i18n_modern | python-i18n | pyi18n-v2 | i18nice |
+| ----------- | :-----------: | :-----------: | :---------: | :-------: |
+| Simple key access | **0.23µs** | 0.79µs | 0.40µs | 1.51µs |
+| Nested key access | **0.17µs** | 66.90µs | 0.64µs | 1.55µs |
+| Parameter substitution | **0.43µs** | 0.99µs | 0.83µs | 1.91µs |
+| Conditional logic | **0.75µs** | ✗ | ✗ | ✗ |
+
+> **384x faster** than python-i18n for nested key access. See [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) for the full analysis.
 
 ## Installation
 
@@ -65,7 +79,8 @@ i18n = I18nModern("fr", "locales/fr.toml")
 
 ### Example Files
 
-**locales/en.json**
+### locales/en.json
+
 ```json
 {
     "welcome": "Welcome to our app!",
@@ -82,7 +97,8 @@ i18n = I18nModern("fr", "locales/fr.toml")
 }
 ```
 
-**locales/es.yaml**
+### locales/es.yaml
+
 ```yaml
 welcome: "¡Bienvenido a nuestra aplicación!"
 greeting: "¡Hola, [name]!"
@@ -95,7 +111,8 @@ items:
   default: "[count] elementos"
 ```
 
-**locales/fr.toml**
+### locales/fr.toml
+
 ```toml
 welcome = "Bienvenue dans notre application!"
 greeting = "Bonjour, [name]!"
@@ -239,6 +256,7 @@ Load all translation files from a directory concurrently.
 **Supported file formats in directory:** `.json`, `.yaml`, `.yml`, `.toml`
 
 **Example:**
+
 ```python
 i18n = I18nModern("es_MX")
 # Loads all .json, .yaml, .yml, and .toml files from the directory
@@ -266,7 +284,3 @@ MIT
 ## Credits
 
 Inspired by [i18n_modern](https://github.com/UrielCuriel/i18n_modern) for JavaScript.
-
-## Author
-
-Uriel Curiel - [urielcurrel@outlook.com](mailto:urielcurrel@outlook.com)

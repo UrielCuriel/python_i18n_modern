@@ -1,4 +1,3 @@
-# pyright: basic
 """
 Comprehensive benchmark comparing i18n_modern with other i18n libraries.
 
@@ -155,7 +154,9 @@ class BenchmarkRunner:
         # We need to create TOML files with the proper structure
         # For now, let's initialize it with the directory and create temporary TOML files
         try:
-            TomlI18n.initialize(locale="en", fallback_locale="en", directory=str(locales_dir))
+            TomlI18n.initialize(
+                locale="en", fallback_locale="en", directory=str(locales_dir)
+            )
         except Exception:
             # If initialization fails, it's likely because TOML files don't exist
             # We'll use a simpler approach - just return the function without initialization
@@ -177,13 +178,17 @@ class BenchmarkRunner:
 
         # Test 1: Simple key access
         print("\n1. Simple Key Access (welcome)")
-        total, per_iter = self.measure_time(lambda: i18n_obj.get("welcome"), iterations=10000)
+        total, per_iter = self.measure_time(
+            lambda: i18n_obj.get("welcome"), iterations=10000
+        )
         print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
         self.results["i18n_modern_simple"] = {"total": total, "per_iter": per_iter}
 
         # Test 2: Nested key access
         print("\n2. Nested Key Access (messages.success)")
-        total, per_iter = self.measure_time(lambda: i18n_obj.get("messages.success"), iterations=10000)
+        total, per_iter = self.measure_time(
+            lambda: i18n_obj.get("messages.success"), iterations=10000
+        )
         print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
         self.results["i18n_modern_nested"] = {"total": total, "per_iter": per_iter}
 
@@ -225,7 +230,10 @@ class BenchmarkRunner:
 
         total, per_iter = self.measure_time(do_load, iterations=1)
         print(f"   Total: {total:.4f}s")
-        self.results["i18n_modern_parallel_load"] = {"total": total, "per_iter": per_iter}
+        self.results["i18n_modern_parallel_load"] = {
+            "total": total,
+            "per_iter": per_iter,
+        }
 
     def benchmark_python_i18n(self):
         """Benchmark python-i18n library."""
@@ -240,7 +248,9 @@ class BenchmarkRunner:
             # Test 1: Simple key access
             print("\n1. Simple Key Access (welcome)")
             try:
-                total, per_iter = self.measure_time(lambda: i18n_lib.t("welcome"), iterations=10000)
+                total, per_iter = self.measure_time(
+                    lambda: i18n_lib.t("welcome"), iterations=10000
+                )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
                 self.results["python_i18n_simple"] = {
                     "total": total,
@@ -253,7 +263,9 @@ class BenchmarkRunner:
             # Test 2: Nested key access
             print("\n2. Nested Key Access (messages.success)")
             try:
-                total, per_iter = self.measure_time(lambda: i18n_lib.t("messages.success"), iterations=10000)
+                total, per_iter = self.measure_time(
+                    lambda: i18n_lib.t("messages.success"), iterations=10000
+                )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
                 self.results["python_i18n_nested"] = {
                     "total": total,
@@ -266,7 +278,9 @@ class BenchmarkRunner:
             # Test 3: With parameter substitution
             print("\n3. Parameter Substitution (greeting)")
             try:
-                total, per_iter = self.measure_time(lambda: i18n_lib.t("greeting", name="Alice"), iterations=10000)
+                total, per_iter = self.measure_time(
+                    lambda: i18n_lib.t("greeting", name="Alice"), iterations=10000
+                )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
                 self.results["python_i18n_params"] = {
                     "total": total,
@@ -344,7 +358,9 @@ class BenchmarkRunner:
             # Test 1: Simple key access
             print("\n1. Simple Key Access (translations.welcome)")
             try:
-                total, per_iter = self.measure_time(lambda: i18n_obj.t("translations.welcome"), iterations=10000)
+                total, per_iter = self.measure_time(
+                    lambda: i18n_obj.t("translations.welcome"), iterations=10000
+                )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
                 self.results["i18nice_simple"] = {"total": total, "per_iter": per_iter}
             except Exception as e:
@@ -355,7 +371,8 @@ class BenchmarkRunner:
             print("\n2. Nested Key Access (translations.messages.success)")
             try:
                 total, per_iter = self.measure_time(
-                    lambda: i18n_obj.t("translations.messages.success"), iterations=10000
+                    lambda: i18n_obj.t("translations.messages.success"),
+                    iterations=10000,
                 )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
                 self.results["i18nice_nested"] = {"total": total, "per_iter": per_iter}
@@ -398,7 +415,10 @@ class BenchmarkRunner:
                     suppress_output=True,
                 )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
-                self.results["toml_i18n_simple"] = {"total": total, "per_iter": per_iter}
+                self.results["toml_i18n_simple"] = {
+                    "total": total,
+                    "per_iter": per_iter,
+                }
             except Exception as e:
                 print(f"   Error: {e}")
                 self.results["toml_i18n_simple"] = {"error": str(e)}
@@ -412,7 +432,10 @@ class BenchmarkRunner:
                     suppress_output=True,
                 )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
-                self.results["toml_i18n_nested"] = {"total": total, "per_iter": per_iter}
+                self.results["toml_i18n_nested"] = {
+                    "total": total,
+                    "per_iter": per_iter,
+                }
             except Exception as e:
                 print(f"   Error: {e}")
                 self.results["toml_i18n_nested"] = {"error": str(e)}
@@ -429,7 +452,10 @@ class BenchmarkRunner:
                 )
                 print(f"   Total: {total:.4f}s | Per iteration: {per_iter * 1e6:.2f}µs")
                 print("   Note: toml-i18n returns template without substitution")
-                self.results["toml_i18n_params"] = {"total": total, "per_iter": per_iter}
+                self.results["toml_i18n_params"] = {
+                    "total": total,
+                    "per_iter": per_iter,
+                }
             except Exception as e:
                 print(f"   Error: {e}")
                 self.results["toml_i18n_params"] = {"error": str(e)}
@@ -487,7 +513,11 @@ class BenchmarkRunner:
                 result = self.results.get(key)
                 if not result:
                     continue
-                times[key] = result.get("per_iter", float("inf")) * 1e6 if "error" not in result else float("inf")
+                times[key] = (
+                    result.get("per_iter", float("inf")) * 1e6
+                    if "error" not in result
+                    else float("inf")
+                )
 
             if not times:
                 continue

@@ -7,32 +7,58 @@ Provides:
 - cy_format_value: fast placeholder substitution using [key]
 """
 
+# Sentinel for missing keys — avoids confusing a stored None with "not found".
+cdef object _MISSING = object()
+
+
 cpdef object cy_get_deep_value(object obj, str path):
     """Traverse mapping using a dot-delimited path.
 
     Accepts any object that implements .get(key[, default]).
     Returns None if any intermediate is missing or not a mapping.
-    
-    Optimized with Cython compiler directives for performance.
+
+    Optimized for partially-flattened locale dicts:
+    1. Fast path  — direct O(1) lookup of the full dot-notation key.
+       Hits immediately when the dict was produced by flatten_locale().
+    2. Slow path  — falls back to segment-by-segment traversal for
+       remaining nested structures (e.g. conditional dicts kept as-is
+       by flatten_locale, or un-flattened dicts passed at runtime).
     """
     if obj is None:
         return None
-    
-    cdef object current = obj
-    cdef list segments = path.split('.')
-    cdef Py_ssize_t i, n = len(segments)
+
+    cdef object result
+    cdef object current
+    cdef list segments
+    cdef Py_ssize_t i, n
     cdef str segment
     cdef object next_val
-    
+
+    # ------------------------------------------------------------------
+    # Fast path: try the whole dot-path as a single key first.
+    # Works in O(1) when the locale was pre-flattened.
+    # ------------------------------------------------------------------
+    if hasattr(obj, 'get'):
+        result = (<object>obj).get(path, _MISSING)
+        if result is not _MISSING:
+            return result
+
+    # ------------------------------------------------------------------
+    # Slow path: walk segment by segment for nested / conditional dicts.
+    # ------------------------------------------------------------------
+    current = obj
+    segments = path.split('.')
+    n = len(segments)
+
     for i in range(n):
         segment = segments[i]
         if not hasattr(current, 'get'):
             return None
-        next_val = current.get(segment, None)
-        if next_val is None:
+        next_val = (<object>current).get(segment, _MISSING)
+        if next_val is _MISSING:
             return None
         current = next_val
-    
+
     return current
 
 
@@ -44,7 +70,7 @@ cpdef str cy_format_value(str s, dict values):
     """Replace [key] occurrences in s with values[key] when present.
 
     Leaves unmatched placeholders intact.
-    
+
     Highly optimized with Cython compiler directives.
     """
     cdef list out = []
@@ -55,7 +81,7 @@ cpdef str cy_format_value(str s, dict values):
     cdef str c
     cdef str key
     cdef object val
-    
+
     while i < n:
         c = s[i]
         if in_bracket:
