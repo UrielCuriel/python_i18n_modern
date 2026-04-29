@@ -27,7 +27,13 @@ def conditional_locales():
 @pytest.fixture
 def comparison_locales():
     """Comparison condition locale data for testing."""
-    return {"age_group": {"[age] < 18": "Minor", "[age] >= 18": "Adult", "default": "Unknown"}}
+    return {
+        "age_group": {
+            "[age] < 18": "Minor",
+            "[age] >= 18": "Adult",
+            "default": "Unknown",
+        }
+    }
 
 
 @pytest.fixture
@@ -127,7 +133,9 @@ class TestI18nModern:
             (65, "Adult"),
         ],
     )
-    def test_comparison_conditions_parametrized(self, comparison_locales: LocaleDict, age: int, expected: str) -> None:
+    def test_comparison_conditions_parametrized(
+        self, comparison_locales: LocaleDict, age: int, expected: str
+    ) -> None:
         """Test comparison conditions with multiple values."""
         i18n = I18nModern("en", comparison_locales)
         assert i18n.get("age_group", values={"age": age}) == expected
@@ -183,7 +191,10 @@ def test_load_from_directory() -> None:
         # From auth.yml
         assert i18n.get("auth.login", locale="es_MX") == "Iniciar sesión"
         # From common.yml
-        assert i18n.get("common.welcome", locale="es_MX") == "Bienvenido a nuestra aplicación"
+        assert (
+            i18n.get("common.welcome", locale="es_MX")
+            == "Bienvenido a nuestra aplicación"
+        )
         # From document.yml
         assert i18n.get("document.create", locale="es_MX") == "Crear documento"
         # From roles.yml
@@ -227,6 +238,149 @@ def test_load_from_directory_not_a_directory() -> None:
 
         with pytest.raises(ValueError, match="not a directory"):
             i18n.load_from_directory(str(file_path), locale_identify="en")
+
+
+def test_load_from_directory_filename_as_namespace() -> None:
+    """Test that filename stem is used as namespace when set per call."""
+    import tempfile
+    from pathlib import Path
+
+    i18n = I18nModern("en")  # instance default is False
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        common_yaml = Path(tmpdir, "common.yaml")
+        common_yaml.write_text(
+            'hello: "Hola"\n'
+            "errors:\n"
+            '  unexpected: "Ha ocurrido un error inesperado"\n'
+            '  unauthorized: "No autorizado"\n'
+            '  forbidden: "Acceso denegado"\n'
+            '  not_found: "Recurso no encontrado"\n'
+            '  validation_failed: "La validacion ha fallado"\n'
+            '  conflict: "Conflicto en la solicitud"\n'
+            "messages:\n"
+            '  operation_success: "Operacion realizada correctamente"\n'
+            '  created: "Recurso creado correctamente"\n'
+            '  updated: "Recurso actualizado correctamente"\n'
+            '  deleted: "Recurso eliminado correctamente"\n',
+            encoding="utf-8",
+        )
+
+        # Override at call level
+        i18n.load_from_directory(
+            tmpdir, locale_identify="en", use_filename_as_namespace=True
+        )
+
+        assert i18n.get("common.hello") == "Hola"
+        assert i18n.get("common.errors.unexpected") == "Ha ocurrido un error inesperado"
+        assert i18n.get("common.errors.unauthorized") == "No autorizado"
+        assert i18n.get("common.errors.forbidden") == "Acceso denegado"
+        assert i18n.get("common.errors.not_found") == "Recurso no encontrado"
+        assert i18n.get("common.errors.validation_failed") == "La validacion ha fallado"
+        assert i18n.get("common.errors.conflict") == "Conflicto en la solicitud"
+        assert (
+            i18n.get("common.messages.operation_success")
+            == "Operacion realizada correctamente"
+        )
+        assert i18n.get("common.messages.created") == "Recurso creado correctamente"
+        assert (
+            i18n.get("common.messages.updated") == "Recurso actualizado correctamente"
+        )
+        assert i18n.get("common.messages.deleted") == "Recurso eliminado correctamente"
+
+
+def test_load_from_directory_filename_as_namespace_instance_default() -> None:
+    """Test that instance-level use_filename_as_namespace=True is used by default."""
+    import tempfile
+    from pathlib import Path
+
+    # Set namespace behaviour at instantiation — no need to pass it per call
+    i18n = I18nModern("en", use_filename_as_namespace=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        Path(tmpdir, "common.yaml").write_text(
+            'hello: "Hola"\nerrors:\n  unexpected: "Error inesperado"\n',
+            encoding="utf-8",
+        )
+
+        i18n.load_from_directory(tmpdir, locale_identify="en")  # no override needed
+
+        assert i18n.get("common.hello") == "Hola"
+        assert i18n.get("common.errors.unexpected") == "Error inesperado"
+
+
+def test_load_from_directory_filename_as_namespace_call_override() -> None:
+    """Test that a per-call override can disable instance-level namespace."""
+    import tempfile
+    from pathlib import Path
+
+    # Instance enables namespace by default
+    i18n = I18nModern("en", use_filename_as_namespace=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        Path(tmpdir, "common.yaml").write_text(
+            'hello: "Hola"\n',
+            encoding="utf-8",
+        )
+
+        # Explicitly disable namespace for this single call
+        i18n.load_from_directory(
+            tmpdir, locale_identify="en", use_filename_as_namespace=False
+        )
+
+        # Key should be flat (no namespace prefix)
+        assert i18n.get("hello") == "Hola"
+        # Namespaced key should NOT exist
+        assert i18n.get("common.hello") == "common.hello"  # returns key on miss
+
+
+def test_load_from_directory_filename_as_namespace_property_setter() -> None:
+    """Test toggling use_filename_as_namespace via the property setter."""
+    import tempfile
+    from pathlib import Path
+
+    i18n = I18nModern("en")
+    assert i18n.use_filename_as_namespace is False
+
+    i18n.use_filename_as_namespace = True
+    assert i18n.use_filename_as_namespace is True
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        Path(tmpdir, "users.yaml").write_text(
+            'name: "Nombre"\n',
+            encoding="utf-8",
+        )
+
+        i18n.load_from_directory(tmpdir, locale_identify="en")
+
+        assert i18n.get("users.name") == "Nombre"
+
+
+def test_load_from_directory_filename_as_namespace_multiple_files() -> None:
+    """Test filename-as-namespace with multiple files in the same directory."""
+    import tempfile
+    from pathlib import Path
+
+    i18n = I18nModern("en")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        Path(tmpdir, "auth.yaml").write_text(
+            'login: "Log in"\nlogout: "Log out"\n',
+            encoding="utf-8",
+        )
+        Path(tmpdir, "users.yaml").write_text(
+            'name: "Name"\nemail: "Email"\n',
+            encoding="utf-8",
+        )
+
+        i18n.load_from_directory(
+            tmpdir, locale_identify="en", use_filename_as_namespace=True
+        )
+
+        assert i18n.get("auth.login") == "Log in"
+        assert i18n.get("auth.logout") == "Log out"
+        assert i18n.get("users.name") == "Name"
+        assert i18n.get("users.email") == "Email"
 
 
 def test_load_from_directory_no_supported_files() -> None:

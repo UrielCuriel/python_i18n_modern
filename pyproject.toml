@@ -1,10 +1,10 @@
 [project]
 name = "i18n_modern"
-version = "0.2.1"
+version = "0.2.3"
 description = "A modern internationalization library for Python with support for JSON, YAML, and TOML"
 readme = "README.md"
 requires-python = ">=3.8"
-authors = [{ name = "Uriel Curiel", email = "urielcurrel@outlook.com" }]
+authors = [{ name = "Uriel Curiel", email = "urielcuriel@outlook.com" }]
 license = { text = "MIT" }
 keywords = [
     "i18n",

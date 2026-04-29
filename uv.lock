@@ -435,7 +435,7 @@ wheels = [
 
 [[package]]
 name = "i18n-modern"
-version = "0.2.1"
+version = "0.2.3"
 source = { editable = "." }
 
 [package.optional-dependencies]

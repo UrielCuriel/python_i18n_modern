@@ -48,9 +48,15 @@ class I18nModern:
         locales: The locales variable (dict) or path to locale file
     """
 
-    def __init__(self, default_locale: str, locales: LocaleDict | str | None = None):
+    def __init__(
+        self,
+        default_locale: str,
+        locales: LocaleDict | str | None = None,
+        use_filename_as_namespace: bool = False,
+    ):
         self._locales: Locales = {}
         self._default_locale: str = default_locale
+        self._use_filename_as_namespace: bool = use_filename_as_namespace
         # Increased cache size for better performance (was unbounded)
         self._previous_translations: dict[tuple[object, ...], str] = {}
         self._cache_max_size: int = 2048  # Limit cache size to prevent unbounded growth
@@ -151,8 +157,21 @@ class I18nModern:
             f"Unsupported file format: {suffix}. Supported formats: .json, .yaml, .yml, .toml"
         )
 
+    @property
+    def use_filename_as_namespace(self) -> bool:
+        """Get the use_filename_as_namespace setting."""
+        return self._use_filename_as_namespace
+
+    @use_filename_as_namespace.setter
+    def use_filename_as_namespace(self, value: bool) -> None:
+        """Set the use_filename_as_namespace setting."""
+        self._use_filename_as_namespace = value
+
     def load_from_directory(
-        self, directory_path: str, locale_identify: str | None = None
+        self,
+        directory_path: str,
+        locale_identify: str | None = None,
+        use_filename_as_namespace: bool | None = None,
     ) -> None:
         """
         Load all locale files from a directory concurrently.
@@ -163,6 +182,10 @@ class I18nModern:
         Args:
             directory_path: Path to the directory containing locale files
             locale_identify: Locale identifier. If None, uses the directory name
+            use_filename_as_namespace: When True, the filename stem (e.g. "common"
+                from "common.yaml") is used as a top-level namespace for all keys
+                in that file, so ``hello`` becomes ``common.hello``. When None
+                (default), falls back to the instance-level setting.
 
         Raises:
             FileNotFoundError: If directory does not exist
@@ -179,6 +202,13 @@ class I18nModern:
         # Use directory name as locale if not specified
         if locale_identify is None:
             locale_identify = path.name
+
+        # Resolve effective flag: per-call override takes precedence over instance default
+        _use_namespace = (
+            use_filename_as_namespace
+            if use_filename_as_namespace is not None
+            else self._use_filename_as_namespace
+        )
 
         # Find all supported locale files
         supported_extensions = {".json", ".yaml", ".yml", ".toml"}
@@ -204,10 +234,20 @@ class I18nModern:
             for fut in as_completed(futures):
                 results.append(fut.result())
 
-        # Merge all loaded data into a single locale entry
-        merged_data: LocaleDict = {}
-        for _, data in results:
-            merged_data = merge_deep(merged_data, data)
+        # Build merged data — optionally wrap each file under its filename stem
+        if _use_namespace:
+            # Load again with filename info (futures don't carry the path)
+            merged_data: LocaleDict = {}
+            with ThreadPoolExecutor() as executor:
+                named_futures = {
+                    executor.submit(self._load_path, f): f.stem for f in locale_files
+                }
+                for fut, stem in named_futures.items():
+                    merged_data = merge_deep(merged_data, {stem: fut.result()})
+        else:
+            merged_data = {}
+            for _, data in results:
+                merged_data = merge_deep(merged_data, data)
 
         self._locales[locale_identify] = flatten_locale(
             merge_deep(self._locales.get(self._default_locale), merged_data)
